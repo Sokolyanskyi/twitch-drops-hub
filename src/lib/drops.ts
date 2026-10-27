@@ -169,54 +169,75 @@ function normalizeCampaign(raw: any, userId: string): Campaign | null {
   };
 }
 
-export async function fetchCampaigns(accessToken: string, userId: string): Promise<Campaign[]> {
-  const failures: string[] = [];
-  let campaigns: any[] | null = null;
+const DASHBOARD_VARIABLES = { fetchRewardCampaigns: false };
 
-  for (const sha256Hash of DASHBOARD_HASHES) {
+function dashboardClientIds(): string[] {
+  const primary = gqlClientId();
+  return primary === WEB_GQL_CLIENT_ID ? [primary] : [primary, WEB_GQL_CLIENT_ID];
+}
+
+type DashboardAttempt = { campaigns: any[] | null; notes: string[] };
+
+async function tryDashboard(accessToken: string, clientId: string): Promise<DashboardAttempt> {
+  const bodies: unknown[] = [
+    ...DASHBOARD_HASHES.map((sha256Hash) => ({
+      operationName: "ViewerDropsDashboard",
+      variables: DASHBOARD_VARIABLES,
+      extensions: { persistedQuery: { version: 1, sha256Hash } },
+    })),
+    {
+      operationName: "ViewerDropsDashboard",
+      query: DASHBOARD_RAW_QUERY,
+      variables: DASHBOARD_VARIABLES,
+    },
+  ];
+
+  const notes: string[] = [];
+
+  for (const body of bodies) {
+    let payload: any;
     try {
-      const payload = await gqlAny(
-        {
-          operationName: "ViewerDropsDashboard",
-          variables: { fetchRewardCampaigns: false },
-          extensions: { persistedQuery: { version: 1, sha256Hash } },
-        },
-        accessToken,
-      );
-      if (hasCampaigns(payload)) {
-        campaigns = (payload as any).data.currentUser.dropCampaigns;
-        break;
-      }
-      failures.push(firstGraphQLError(payload) ?? "persisted query не найден");
+      payload = await gqlRequest(body, accessToken, clientId);
     } catch (error) {
+      // 401 means the token itself is dead — no point trying other queries
       if (error instanceof TwitchError && error.status === 401) throw error;
-      failures.push(error instanceof Error ? error.message : String(error));
+      notes.push(error instanceof Error ? error.message : String(error));
+      continue;
     }
+
+    if (hasCampaigns(payload)) {
+      return { campaigns: payload.data.currentUser.dropCampaigns, notes };
+    }
+
+    const graphqlError = firstGraphQLError(payload);
+    if (graphqlError) notes.push(graphqlError);
+    else if (payload?.data?.currentUser === null) notes.push("currentUser = null");
+    else notes.push("unexpected response");
   }
 
-  if (!campaigns) {
-    const payload = await gqlAny(
-      {
-        operationName: "ViewerDropsDashboard",
-        query: DASHBOARD_RAW_QUERY,
-        variables: { fetchRewardCampaigns: false },
-      },
-      accessToken,
-    );
-    if (!hasCampaigns(payload)) {
-      throw new TwitchError(
-        `Twitch не отдал список кампаний: ${firstGraphQLError(payload) ?? failures[0] ?? "неизвестная ошибка"}`,
-        502,
-      );
+  return { campaigns: null, notes };
+}
+
+export async function fetchCampaigns(accessToken: string, userId: string): Promise<Campaign[]> {
+  const notes: string[] = [];
+
+  for (const clientId of dashboardClientIds()) {
+    const attempt = await tryDashboard(accessToken, clientId);
+    if (attempt.campaigns) {
+      return attempt.campaigns
+        .map((campaign) => normalizeCampaign(campaign, userId))
+        .filter((campaign: Campaign | null): campaign is Campaign => campaign !== null);
     }
-    campaigns = (payload as any).data.currentUser.dropCampaigns;
+    notes.push(`${clientId}: ${attempt.notes.join(" / ") || "empty response"}`);
   }
 
-  const rawCampaigns: any[] = campaigns ?? [];
-
-  return rawCampaigns
-    .map((campaign) => normalizeCampaign(campaign, userId))
-    .filter((campaign: Campaign | null): campaign is Campaign => campaign !== null);
+  const rejectedToken = notes.every((note) => note.includes("currentUser = null"));
+  throw new TwitchError(
+    rejectedToken
+      ? `Twitch не принял токен (currentUser = null). Диагностика: /api/debug — ${notes.join(" | ")}`
+      : `Twitch не отдал список кампаний: ${notes.join(" | ") || "неизвестная ошибка"}`,
+    502,
+  );
 }
 
 export type ClaimResult = { ok: boolean; status: string; message?: string };
