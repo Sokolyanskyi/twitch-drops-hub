@@ -81,8 +81,38 @@ function firstGraphQLError(payload: any): string | null {
   return null;
 }
 
-function hasCampaigns(payload: any): boolean {
-  return Array.isArray(payload?.data?.currentUser?.dropCampaigns);
+/**
+ * Twitch sometimes returns plain arrays and sometimes connection objects ({ edges } / { nodes }),
+ * depending on the operation version. Both shapes are accepted here.
+ */
+function extractCampaigns(payload: any): any[] | null {
+  const raw = payload?.data?.currentUser?.dropCampaigns;
+  if (Array.isArray(raw)) return raw;
+  if (raw && Array.isArray(raw.edges)) {
+    return raw.edges.map((edge: any) => edge?.node).filter(Boolean);
+  }
+  if (raw && Array.isArray(raw.nodes)) return raw.nodes;
+  return null;
+}
+
+/** Compact description of an unexpected GraphQL response — used in error messages. */
+function describePayload(payload: any): string {
+  if (!payload || typeof payload !== "object") return `payload=${typeof payload}`;
+  const graphqlError = firstGraphQLError(payload);
+  if (graphqlError) return `errors: ${graphqlError.slice(0, 90)}`;
+
+  const data = payload.data;
+  if (!data) return `no data (keys: ${Object.keys(payload).join(",") || "none"})`;
+  if (!("currentUser" in data)) return `data keys: ${Object.keys(data).join(",")}`;
+
+  const currentUser = data.currentUser;
+  if (currentUser === null) return "currentUser=null";
+
+  const campaigns = currentUser?.dropCampaigns;
+  if (campaigns === null) return "dropCampaigns=null";
+  if (Array.isArray(campaigns)) return `dropCampaigns[${campaigns.length}]`;
+  if (typeof campaigns === "object") return `dropCampaigns{${Object.keys(campaigns).join(",")}}`;
+  return `dropCampaigns=${typeof campaigns}`;
 }
 
 function computeStatus(apiStatus: string, startsAt: number, endsAt: number): CampaignStatus {
@@ -171,6 +201,38 @@ function normalizeCampaign(raw: any, userId: string): Campaign | null {
 
 const DASHBOARD_VARIABLES = { fetchRewardCampaigns: false };
 
+/** Minimal selection set — used first, because Twitch is picky about unknown fields. */
+const DASHBOARD_PROBE_QUERY = `query ViewerDropsDashboard {
+  currentUser {
+    id
+    dropCampaigns {
+      id
+    }
+  }
+}`;
+
+const DASHBOARD_MINIMAL_QUERY = `query ViewerDropsDashboard {
+  currentUser {
+    id
+    dropCampaigns {
+      id
+      name
+      startAt
+      endAt
+      status
+      timeBasedDrops {
+        id
+        name
+        startAt
+        endAt
+        requiredMinutesWatched
+        benefitEdges { benefit { id name imageAssetURL } }
+        self { dropInstanceID isClaimed currentMinutesWatched }
+      }
+    }
+  }
+}`;
+
 function dashboardClientIds(): string[] {
   const primary = gqlClientId();
   return primary === WEB_GQL_CLIENT_ID ? [primary] : [primary, WEB_GQL_CLIENT_ID];
@@ -178,23 +240,18 @@ function dashboardClientIds(): string[] {
 
 type DashboardAttempt = { campaigns: any[] | null; notes: string[] };
 
-async function tryDashboard(accessToken: string, clientId: string): Promise<DashboardAttempt> {
-  const bodies: unknown[] = [
-    ...DASHBOARD_HASHES.map((sha256Hash) => ({
-      operationName: "ViewerDropsDashboard",
-      variables: DASHBOARD_VARIABLES,
-      extensions: { persistedQuery: { version: 1, sha256Hash } },
-    })),
-    {
-      operationName: "ViewerDropsDashboard",
-      query: DASHBOARD_RAW_QUERY,
-      variables: DASHBOARD_VARIABLES,
-    },
-  ];
+function dashboardBodies(): unknown[] {
+  return [DASHBOARD_PROBE_QUERY, DASHBOARD_MINIMAL_QUERY, DASHBOARD_RAW_QUERY].map((query) => ({
+    operationName: "ViewerDropsDashboard",
+    query,
+    variables: DASHBOARD_VARIABLES,
+  }));
+}
 
+async function tryDashboard(accessToken: string, clientId: string): Promise<DashboardAttempt> {
   const notes: string[] = [];
 
-  for (const body of bodies) {
+  for (const body of dashboardBodies()) {
     let payload: any;
     try {
       payload = await gqlRequest(body, accessToken, clientId);
@@ -205,14 +262,12 @@ async function tryDashboard(accessToken: string, clientId: string): Promise<Dash
       continue;
     }
 
-    if (hasCampaigns(payload)) {
-      return { campaigns: payload.data.currentUser.dropCampaigns, notes };
+    const campaigns = extractCampaigns(payload);
+    if (campaigns) {
+      return { campaigns, notes };
     }
 
-    const graphqlError = firstGraphQLError(payload);
-    if (graphqlError) notes.push(graphqlError);
-    else if (payload?.data?.currentUser === null) notes.push("currentUser = null");
-    else notes.push("unexpected response");
+    notes.push(`${describePayload(payload)} raw=${JSON.stringify(payload).slice(0, 260)}`);
   }
 
   return { campaigns: null, notes };
@@ -231,10 +286,10 @@ export async function fetchCampaigns(accessToken: string, userId: string): Promi
     notes.push(`${clientId}: ${attempt.notes.join(" / ") || "empty response"}`);
   }
 
-  const rejectedToken = notes.every((note) => note.includes("currentUser = null"));
+  const rejectedToken = notes.every((note) => note.includes("currentUser=null"));
   throw new TwitchError(
     rejectedToken
-      ? `Twitch не принял токен (currentUser = null). Диагностика: /api/debug — ${notes.join(" | ")}`
+      ? `Twitch не принял токен (currentUser=null). Диагностика: /api/debug — ${notes.join(" | ")}`
       : `Twitch не отдал список кампаний: ${notes.join(" | ") || "неизвестная ошибка"}`,
     502,
   );
