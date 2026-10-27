@@ -15,5 +15,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .scratch/
-
-.vercel
+.tmp/

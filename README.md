@@ -33,6 +33,8 @@ requests are forged, and no viewing time is simulated.
 
 ## Install
 
+### Chrome, Edge, and other Chromium browsers
+
 1. Open the deployed app (for example <https://twitch-drops-hub.vercel.app>) — it will offer the
    extension archive.
 2. Download `drops-hub-extension.zip` and unpack it somewhere permanent.
@@ -41,8 +43,20 @@ requests are forged, and no viewing time is simulated.
 4. Open <https://www.twitch.tv/drops/campaigns> — the extension captures the campaign snapshot.
 5. Return to the app and press **Проверить снова**.
 
-Works in Chrome, Edge and other Chromium browsers. The extension source lives in [`extension/`](extension)
-with its own [README](extension/README.md).
+### Zen browser and Firefox
+
+Zen is built on Firefox, so it needs the Firefox build of the extension:
+
+1. Download `drops-hub-extension-firefox.zip` from the app and unpack it.
+2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on** and select
+   `manifest.json` inside the unpacked folder.
+3. Open <https://www.twitch.tv/drops/campaigns>, then return to the app and press **Проверить снова**.
+
+Temporary add-ons disappear when the browser restarts. To keep it permanently, submit the zip to
+[addons.mozilla.org](https://addons.mozilla.org/developers/) as a *self-distributed* add-on — Mozilla
+signs it and gives you an `.xpi` you can install for good.
+
+The extension source lives in [`extension/`](extension) with its own [README](extension/README.md).
 
 ## Local development
 
@@ -75,11 +89,11 @@ There are no environment variables to configure.
 3. Open the assigned domain. The page is fully static, so no settings are required.
 
 If you deploy under a different domain, add it to `host_permissions` and to the dashboard
-`content_scripts.matches` in [`extension/manifest.json`](extension/manifest.json), then rebuild
-`public/drops-hub-extension.zip`:
+`content_scripts.matches` in [`extension/manifest.json`](extension/manifest.json), then rebuild both
+archives:
 
 ```powershell
-Compress-Archive -Path extension -DestinationPath public/drops-hub-extension.zip -Force
+powershell -ExecutionPolicy Bypass -File scripts/package-extension.ps1
 ```
 
 ## Project structure
@@ -101,12 +115,15 @@ src/
     mock.ts                   — demo data for DROPS_MOCK=1
     types.ts                  — shared types
 extension/
-  manifest.json               — MV3 manifest
+  manifest.json               — MV3 manifest (Chromium + Firefox/Zen)
   capture.js                  — reads the page's own GraphQL response (MAIN world)
-  bridge-twitch.js            — stores the snapshot in chrome.storage.local
+  bridge-twitch.js            — stores the snapshot in storage.local
   bridge-dashboard.js         — answers snapshot requests on the dashboard domain
 public/
-  drops-hub-extension.zip     — packaged extension served by the site
+  drops-hub-extension.zip     — Chromium build served by the site
+  drops-hub-extension-firefox.zip — Firefox / Zen build served by the site
+scripts/
+  package-extension.ps1       — builds both archives from extension/
 ```
 
 ## How it works
@@ -122,8 +139,9 @@ public/
 
 ## Known limitations
 
-- **Chromium desktop only** — the extension is not available for mobile browsers, so the mobile
-  version of the app is read-only and shows the last synced snapshot only if that device has one.
+- **Desktop browsers only** — Chromium (Chrome, Edge, Brave, …) loads the unpacked folder, Zen and
+  Firefox load the temporary add-on. Mobile browsers have no extension support, so the app there
+  shows only a snapshot previously synced in that browser.
 - **Snapshot freshness** — data updates when you open the Twitch Drops page; the app cannot poll
   Twitch on its own.
 - **Claiming happens on Twitch** — the "Забрать" button opens the campaign on twitch.tv; the app

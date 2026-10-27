@@ -132,6 +132,42 @@ export default function Onboarding({ onRetry }: { onRetry: () => void }) {
             </div>
           ))}
 
+          <details className="rounded-2xl border border-line bg-ink/40 p-3">
+            <summary className="cursor-pointer select-none text-xs font-medium text-[#dcdce4]">
+              Zen или Firefox — другой способ
+            </summary>
+            <ol className="mt-3 space-y-2 text-[12px] leading-relaxed text-muted">
+              <li>
+                <span className="text-[#dcdce4]">1.</span> Скачайте{" "}
+                <a
+                  href="/drops-hub-extension-firefox.zip"
+                  className="text-accent-2 underline underline-offset-2"
+                >
+                  drops-hub-extension-firefox.zip
+                </a>{" "}
+                и распакуйте.
+              </li>
+              <li>
+                <span className="text-[#dcdce4]">2.</span> Откройте{" "}
+                <code className="rounded bg-white/10 px-1.5 py-0.5 text-[11px]">
+                  about:debugging#/runtime/this-firefox
+                </code>
+                , нажмите «Загрузить временное дополнение» и выберите{" "}
+                <code className="rounded bg-white/10 px-1.5 py-0.5 text-[11px]">manifest.json</code>{" "}
+                из распакованной папки.
+              </li>
+              <li>
+                <span className="text-[#dcdce4]">3.</span> Откройте twitch.tv/drops/campaigns и
+                вернитесь сюда.
+              </li>
+            </ol>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">
+              Временное дополнение пропадает после перезапуска браузера — загрузите его снова или
+              подпишите архив на addons.mozilla.org («Sign for self-distribution»), чтобы установить
+              навсегда.
+            </p>
+          </details>
+
           <div className="flex flex-col gap-2 border-t border-line pt-4 sm:flex-row">
             <button
               type="button"
@@ -153,8 +189,8 @@ export default function Onboarding({ onRetry }: { onRetry: () => void }) {
         <div className="mt-6 flex items-start gap-2 text-[11px] leading-relaxed text-muted">
           <SparkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-2" />
           <p>
-            Подходит Chrome и Edge (и браузеры на Chromium). Данные хранятся только в вашем браузере;
-            избранное и отметки о новых наградах — тоже. Если расширение уже установлено, но данные не
+            Подходит Chrome, Edge, Zen и Firefox. Данные хранятся только в вашем браузере; избранное
+            и отметки о новых наградах — тоже. Если расширение уже установлено, но данные не
             появились, обновите страницу Twitch с дропсами и вернитесь сюда.
           </p>
         </div>

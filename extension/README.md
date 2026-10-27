@@ -17,7 +17,9 @@ from **your own** twitch.tv tab.
 - It does not fake viewing time: no automation, no heartbeats, nothing that could get an account
   banned.
 
-## Install (developer mode)
+## Install
+
+### Chrome / Edge (Chromium)
 
 1. Download `drops-hub-extension.zip` from the deployed site (or use this folder as is).
 2. Unpack it somewhere permanent.
@@ -26,11 +28,32 @@ from **your own** twitch.tv tab.
 5. Open <https://www.twitch.tv/drops/campaigns> — the snapshot is captured automatically.
 6. Return to the Drops Hub tab and press **Проверить снова** (or reload the page).
 
-The zip shipped on the site is a snapshot of this folder; after changing the extension, regenerate it:
+### Zen / Firefox
+
+1. Download `drops-hub-extension-firefox.zip` and unpack it.
+2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**.
+3. Select `manifest.json` from the unpacked folder.
+4. Open <https://www.twitch.tv/drops/campaigns>, then return to the dashboard.
+
+Temporary add-ons are removed on browser restart. For a permanent install, submit the archive to
+[addons.mozilla.org](https://addons.mozilla.org/developers/) as a self-distributed add-on — Mozilla
+signs it and returns an `.xpi`.
+
+The Firefox build only differs by the `browser_specific_settings.gecko` key in `manifest.json`, which
+Chromium builds drop.
+
+## Packaging
+
+Both archives are generated from this folder:
 
 ```powershell
-Compress-Archive -Path extension -DestinationPath public/drops-hub-extension.zip -Force
+powershell -ExecutionPolicy Bypass -File scripts/package-extension.ps1
 ```
+
+| Output | Notes |
+| --- | --- |
+| `public/drops-hub-extension.zip` | Chromium build, `browser_specific_settings` removed. |
+| `public/drops-hub-extension-firefox.zip` | Firefox / Zen build, manifest as is. |
 
 ## Files
 
