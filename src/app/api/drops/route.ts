@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { clearSession } from "@/lib/session";
 import { fetchCampaigns } from "@/lib/drops";
+import { collectDiagnostics } from "@/lib/diagnostics";
 import { TwitchError } from "@/lib/twitch";
 import type { CampaignsResponse } from "@/lib/types";
 
@@ -42,6 +43,17 @@ export async function GET() {
 
     const message =
       error instanceof Error ? error.message : "Не удалось получить список кампаний";
-    return NextResponse.json({ error: "twitch_error", message }, { status: 502 });
+
+    let summary = "";
+    try {
+      summary = (await collectDiagnostics(session.accessToken)).summary;
+    } catch {
+      summary = "";
+    }
+
+    return NextResponse.json(
+      { error: "twitch_error", message: summary ? `${message} | ${summary}` : message },
+      { status: 502 },
+    );
   }
 }

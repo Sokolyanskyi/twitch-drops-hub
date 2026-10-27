@@ -633,6 +633,9 @@ export default function Dashboard({ user }: { user: PublicUser }) {
           <p>
             Drops Hub не накручивает время просмотра: прогресс начисляет Twitch, а приложение
             показывает кампании и помогает забрать готовые награды.
+            {process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA
+              ? ` · сборка ${process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA.slice(0, 7)}`
+              : ""}
           </p>
         </footer>
       </main>
