@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { Campaign, CampaignsResponse, Drop, PublicUser } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { useDropsBridge } from "@/lib/bridge";
 import { cn, pluralRu, timeAgo } from "@/lib/format";
+import type { Campaign } from "@/lib/types";
 import CampaignCard from "./CampaignCard";
+import Onboarding from "./Onboarding";
 import {
   BellIcon,
   CheckIcon,
   GiftIcon,
-  LogoutIcon,
   RefreshIcon,
   SearchIcon,
   SparkIcon,
@@ -71,27 +71,19 @@ function matchesQuery(campaign: Campaign, query: string): boolean {
   return haystack.includes(query);
 }
 
-export default function Dashboard({ user }: { user: PublicUser }) {
-  const router = useRouter();
-
-  const [data, setData] = useState<CampaignsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [tab, setTab] = useState<Tab>("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
-  const [query, setQuery] = useState("");
+export default function Dashboard({ mock = false }: { mock?: boolean }) {
+  const { state, refresh } = useDropsBridge(mock);
+  const campaigns = state.campaigns;
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [seen, setSeen] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
-  const [claimingDropId, setClaimingDropId] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<Tab>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [query, setQuery] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [notifyAllowed, setNotifyAllowed] = useState(false);
-
-  const notified = useRef<Set<string>>(new Set());
-  const firstLoad = useRef(true);
 
   useEffect(() => {
     setFavorites(readList(FAV_KEY));
@@ -110,56 +102,11 @@ export default function Dashboard({ user }: { user: PublicUser }) {
     localStorage.setItem(SEEN_KEY, JSON.stringify(seen.slice(-5000)));
   }, [seen, hydrated]);
 
-  const pushToast = useCallback((text: string, kind: "ok" | "err" = "ok") => {
+  const pushToast = (text: string, kind: "ok" | "err" = "ok") => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, text, kind }]);
     setTimeout(() => setToasts((prev) => prev.filter((toast) => toast.id !== id)), 4200);
-  }, []);
-
-  const load = useCallback(
-    async (silent = false) => {
-      if (silent) setRefreshing(true);
-      else setLoading(true);
-      try {
-        const res = await fetch("/api/drops", { cache: "no-store" });
-        if (res.status === 401) {
-          router.replace("/login");
-          return;
-        }
-        const json = (await res.json()) as CampaignsResponse & { message?: string; error?: string };
-        if (!res.ok) throw new Error(json.message ?? "Не удалось загрузить кампании");
-        setData(json);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Не удалось загрузить кампании");
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [router],
-  );
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void load(true);
-    }, 90_000);
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void load(true);
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [load]);
-
-  const campaigns = data?.campaigns ?? [];
+  };
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const seenSet = useMemo(() => new Set(seen), [seen]);
@@ -183,41 +130,29 @@ export default function Dashboard({ user }: { user: PublicUser }) {
     [newDrops],
   );
 
-  const markSeen = useCallback((ids: Iterable<string>) => {
+  const markSeen = (ids: Iterable<string>) => {
     const list = Array.from(ids);
     if (list.length === 0) return;
     setSeen((prev) => Array.from(new Set([...prev, ...list])));
-  }, []);
+  };
 
   useEffect(() => {
-    if (firstLoad.current || !data) return;
-
-    const permission = typeof Notification !== "undefined" ? Notification.permission : "denied";
-    if (permission !== "granted") return;
+    if (state.status !== "ready" || newCount === 0) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
 
     const fresh: string[] = [];
-    newDrops.forEach((ids) => {
-      ids.forEach((id) => {
-        if (!notified.current.has(id)) fresh.push(id);
-        notified.current.add(id);
+    newDrops.forEach((ids) => ids.forEach((id) => fresh.push(id)));
+    if (fresh.length === 0) return;
+
+    try {
+      new Notification("Новые дропсы в избранном", {
+        body: `${fresh.length} ${pluralRu(fresh.length, ["новая награда", "новые награды", "новых наград"])} в Drops Hub`,
       });
-    });
-
-    if (fresh.length > 0) {
-      try {
-        new Notification("Новые дропсы в избранном", {
-          body: `${fresh.length} ${pluralRu(fresh.length, ["новая награда", "новые награды", "новых наград"])} ждёт вас в Drops Hub`,
-          icon: user.avatarUrl || undefined,
-        });
-      } catch {
-        /* notifications may be blocked by the browser policy */
-      }
+    } catch {
+      /* notifications may be blocked by the browser policy */
     }
-  }, [data, newDrops, user.avatarUrl]);
-
-  useEffect(() => {
-    if (data) firstLoad.current = false;
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status, newCount]);
 
   // Mark drops as seen automatically after 30 seconds on the "Favorites" tab.
   useEffect(() => {
@@ -228,68 +163,14 @@ export default function Dashboard({ user }: { user: PublicUser }) {
       markSeen(ids);
     }, 30_000);
     return () => clearTimeout(timer);
-  }, [tab, newCount, newDrops, markSeen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, newCount, newDrops]);
 
-  const toggleFavorite = useCallback((campaignId: string) => {
+  const toggleFavorite = (campaignId: string) => {
     setFavorites((prev) =>
       prev.includes(campaignId) ? prev.filter((id) => id !== campaignId) : [...prev, campaignId],
     );
-  }, []);
-
-  const claim = useCallback(
-    async (campaign: Campaign, drop: Drop) => {
-      if (!drop.claimId) return;
-      setClaimingDropId(drop.id);
-      try {
-        const res = await fetch("/api/drops/claim", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ claimId: drop.claimId }),
-        });
-        if (res.status === 401) {
-          router.replace("/login");
-          return;
-        }
-        const json = (await res.json()) as { ok?: boolean; message?: string; error?: string };
-        if (!res.ok) throw new Error(json.message ?? "Не удалось забрать дропс");
-
-        pushToast(json.message ?? "Готово", json.ok ? "ok" : "err");
-
-        if (json.ok) {
-          setData((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  campaigns: prev.campaigns.map((item) =>
-                    item.id === campaign.id
-                      ? {
-                          ...item,
-                          drops: item.drops.map((entry) =>
-                            entry.id === drop.id
-                              ? {
-                                  ...entry,
-                                  isClaimed: true,
-                                  canClaim: false,
-                                  watchedMinutes: entry.requiredMinutes,
-                                }
-                              : entry,
-                          ),
-                        }
-                      : item,
-                  ),
-                }
-              : prev,
-          );
-          markSeen([drop.id]);
-        }
-      } catch (err) {
-        pushToast(err instanceof Error ? err.message : "Ошибка при получении дропса", "err");
-      } finally {
-        setClaimingDropId(null);
-      }
-    },
-    [markSeen, pushToast, router],
-  );
+  };
 
   const enableNotifications = async () => {
     if (typeof Notification === "undefined") {
@@ -302,12 +183,6 @@ export default function Dashboard({ user }: { user: PublicUser }) {
       permission === "granted" ? "Уведомления включены" : "Уведомления отключены в браузере",
       permission === "granted" ? "ok" : "err",
     );
-  };
-
-  const logout = async () => {
-    await fetch("/api/auth/session", { method: "DELETE" });
-    router.replace("/login");
-    router.refresh();
   };
 
   const normalizedQuery = query.trim().toLowerCase();
@@ -356,11 +231,7 @@ export default function Dashboard({ user }: { user: PublicUser }) {
   }, [campaigns, favoriteSet, tab]);
 
   const tabs: Array<{ id: Tab; label: string; badge?: number; icon: React.ReactNode }> = [
-    {
-      id: "all",
-      label: "Все кампании",
-      icon: <GiftIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />,
-    },
+    { id: "all", label: "Все кампании", icon: <GiftIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
     {
       id: "favorites",
       label: "Избранное",
@@ -386,6 +257,17 @@ export default function Dashboard({ user }: { user: PublicUser }) {
           ? "Ничего не нашлось. Попробуйте другой запрос."
           : "Кампаний с таким статусом сейчас нет.";
 
+  if (state.status === "waiting") {
+    return <Onboarding onRetry={refresh} />;
+  }
+
+  const sourceLabel =
+    state.source === "extension"
+      ? "из расширения"
+      : state.source === "cache"
+        ? "из кэша"
+        : "демо-данные";
+
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur">
@@ -397,7 +279,8 @@ export default function Dashboard({ user }: { user: PublicUser }) {
             <div className="leading-tight">
               <p className="text-sm font-semibold tracking-tight">Drops Hub</p>
               <p className="hidden text-[11px] text-muted sm:block">
-                {data ? `${counts.total} ${pluralRu(counts.total, ["кампания", "кампании", "кампаний"])}` : "Twitch Drops"}
+                {counts.total} {pluralRu(counts.total, ["кампания", "кампании", "кампаний"])} ·{" "}
+                {sourceLabel}
               </p>
             </div>
           </div>
@@ -405,33 +288,14 @@ export default function Dashboard({ user }: { user: PublicUser }) {
           <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void load(true)}
-              disabled={refreshing}
-              title="Обновить"
-              className="rounded-lg p-2 text-muted transition hover:bg-white/5 hover:text-white disabled:opacity-60"
+              onClick={refresh}
+              title="Запросить свежие данные у расширения"
+              className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-muted transition hover:bg-white/5 hover:text-white"
             >
-              <RefreshIcon className={cn("h-4.5 w-4.5", refreshing && "animate-spin")} />
-            </button>
-
-            <div className="hidden items-center gap-2 rounded-full bg-white/5 py-1 pl-1 pr-3 sm:flex">
-              {user.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={user.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
-              ) : (
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/20 text-[11px] font-semibold text-accent-2">
-                  {user.displayName.slice(0, 2).toUpperCase()}
-                </span>
-              )}
-              <span className="max-w-[9rem] truncate text-xs text-[#dcdce4]">{user.displayName}</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void logout()}
-              title="Выйти"
-              className="rounded-lg p-2 text-muted transition hover:bg-white/5 hover:text-white"
-            >
-              <LogoutIcon className="h-4.5 w-4.5" />
+              <RefreshIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                {state.capturedAt ? `обновлено ${timeAgo(state.capturedAt)}` : "обновить"}
+              </span>
             </button>
           </div>
         </div>
@@ -473,6 +337,23 @@ export default function Dashboard({ user }: { user: PublicUser }) {
             </p>
           </div>
         </section>
+
+        {state.source === "cache" && (
+          <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-warn/25 bg-warn/[0.07] p-3 text-[11px] text-warn sm:flex-row sm:items-center">
+            <span>
+              Показаны сохранённые данные. Откройте twitch.tv/drops/campaigns — расширение обновит
+              снимок, — потом нажмите «Обновить».
+            </span>
+            <a
+              href="https://www.twitch.tv/drops/campaigns"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-warn/30 px-2.5 py-1 font-medium transition hover:bg-warn/10 sm:ml-auto"
+            >
+              Открыть Twitch
+            </a>
+          </div>
+        )}
 
         <nav className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1 no-scrollbar">
           {tabs.map((item) => (
@@ -575,26 +456,7 @@ export default function Dashboard({ user }: { user: PublicUser }) {
           </div>
         )}
 
-        {error && (
-          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 sm:flex-row sm:items-center">
-            <p className="text-xs text-red-200">{error}</p>
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-[11px] text-white transition hover:bg-white/15 sm:ml-auto"
-            >
-              Повторить
-            </button>
-          </div>
-        )}
-
-        {loading && !data ? (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="skeleton h-56 rounded-2xl" />
-            ))}
-          </div>
-        ) : visibleCampaigns.length === 0 ? (
+        {visibleCampaigns.length === 0 ? (
           <div className="mt-10 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line px-6 py-14 text-center">
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-muted">
               <GiftIcon className="h-6 w-6" />
@@ -614,11 +476,9 @@ export default function Dashboard({ user }: { user: PublicUser }) {
                   campaign={view}
                   favorite={favoriteSet.has(campaign.id)}
                   newDropIds={newDrops.get(campaign.id) ?? new Set<string>()}
-                  claimingDropId={claimingDropId}
                   totalDrops={campaign.drops.length}
                   claimedDrops={campaign.drops.filter((drop) => drop.isClaimed).length}
                   onToggleFavorite={toggleFavorite}
-                  onClaim={(target, drop) => void claim(target, drop)}
                 />
               );
             })}
@@ -627,12 +487,14 @@ export default function Dashboard({ user }: { user: PublicUser }) {
 
         <footer className="mt-12 flex flex-col gap-2 border-t border-line pt-6 text-[11px] text-muted">
           <p>
-            Обновлено {data ? timeAgo(data.fetchedAt) : "—"}. Список обновляется автоматически каждые
-            90 секунд.
+            {state.capturedAt
+              ? `Данные с twitch.tv: обновлено ${timeAgo(state.capturedAt)}.`
+              : "Данные ещё не получены."}{" "}
+            Расширение обновляет снимок, когда вы открываете страницу дропсов на Twitch.
           </p>
           <p>
-            Drops Hub не накручивает время просмотра: прогресс начисляет Twitch, а приложение
-            показывает кампании и помогает забрать готовые награды.
+            Drops Hub не накручивает время просмотра и не хранит токены: данные приходят из вашей
+            собственной вкладки Twitch и остаются в браузере.
             {process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA
               ? ` · сборка ${process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA.slice(0, 7)}`
               : ""}

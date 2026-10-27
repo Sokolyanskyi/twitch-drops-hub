@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Drops Hub Bridge",
+  "version": "1.0.0",
+  "description": "Passes Twitch Drops data from your own twitch.tv tab to the Drops Hub dashboard. No passwords, no tokens, no automation.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.twitch.tv/*",
+    "https://twitch-drops-hub.vercel.app/*",
+    "http://localhost:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.twitch.tv/*"],
+      "js": ["capture.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.twitch.tv/*"],
+      "js": ["bridge-twitch.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://twitch-drops-hub.vercel.app/*", "http://localhost:3000/*"],
+      "js": ["bridge-dashboard.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

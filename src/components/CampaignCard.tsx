@@ -8,11 +8,9 @@ type Props = {
   campaign: Campaign;
   favorite: boolean;
   newDropIds: Set<string>;
-  claimingDropId: string | null;
   totalDrops?: number;
   claimedDrops?: number;
   onToggleFavorite: (campaignId: string) => void;
-  onClaim: (campaign: Campaign, drop: Drop) => void;
 };
 
 function Progress({ value, done }: { value: number; done: boolean }) {
@@ -26,15 +24,6 @@ function Progress({ value, done }: { value: number; done: boolean }) {
         style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
       />
     </div>
-  );
-}
-
-function Spinner({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={cn("animate-spin", className)} fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
-      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -65,13 +54,11 @@ function StatusChip({ campaign }: { campaign: Campaign }) {
 function DropRow({
   drop,
   isNew,
-  claiming,
-  onClaim,
+  dropUrl,
 }: {
   drop: Drop;
   isNew: boolean;
-  claiming: boolean;
-  onClaim: () => void;
+  dropUrl: string;
 }) {
   const total = Math.max(1, drop.requiredMinutes);
   const percent = drop.isClaimed ? 100 : Math.min(100, (drop.watchedMinutes / total) * 100);
@@ -123,14 +110,15 @@ function DropRow({
       </div>
 
       {drop.canClaim && (
-        <button
-          type="button"
-          onClick={onClaim}
-          disabled={claiming}
-          className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#7d32e8] disabled:cursor-wait disabled:opacity-70"
+        <a
+          href={dropUrl}
+          target="_blank"
+          rel="noreferrer"
+          title="Забрать на Twitch"
+          className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#7d32e8]"
         >
-          {claiming ? <Spinner className="h-3.5 w-3.5" /> : "Забрать"}
-        </button>
+          Забрать
+        </a>
       )}
     </div>
   );
@@ -140,16 +128,15 @@ export default function CampaignCard({
   campaign,
   favorite,
   newDropIds,
-  claimingDropId,
   totalDrops,
   claimedDrops,
   onToggleFavorite,
-  onClaim,
 }: Props) {
   const totalDropCount = totalDrops ?? campaign.drops.length;
   const claimedDropCount =
     claimedDrops ?? campaign.drops.filter((drop) => drop.isClaimed).length;
   const cover = campaign.imageUrl ?? campaign.boxArtUrl ?? null;
+  const dropUrl = campaign.detailsUrl ?? "https://www.twitch.tv/drops/campaigns";
 
   return (
     <article
@@ -258,8 +245,7 @@ export default function CampaignCard({
             key={drop.id}
             drop={drop}
             isNew={newDropIds.has(drop.id)}
-            claiming={claimingDropId === drop.id}
-            onClaim={() => onClaim(campaign, drop)}
+            dropUrl={dropUrl}
           />
         ))}
       </div>
