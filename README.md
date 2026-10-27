@@ -45,7 +45,7 @@ requests are forged, and no viewing time is simulated.
 
 ### Zen browser and Firefox
 
-Zen is built on Firefox, so it needs the Firefox build of the extension:
+Zen is built on Firefox, so it needs the Firefox build of the extension (Firefox 140+, Zen 1.5+):
 
 1. Download `drops-hub-extension-firefox.zip` from the app and unpack it.
 2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on** and select

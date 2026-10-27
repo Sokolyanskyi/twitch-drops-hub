@@ -30,6 +30,8 @@ from **your own** twitch.tv tab.
 
 ### Zen / Firefox
 
+Requires Firefox 140+ (Zen 1.5+).
+
 1. Download `drops-hub-extension-firefox.zip` and unpack it.
 2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**.
 3. Select `manifest.json` from the unpacked folder.
