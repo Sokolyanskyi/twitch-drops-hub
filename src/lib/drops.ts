@@ -233,12 +233,14 @@ const DASHBOARD_MINIMAL_QUERY = `query ViewerDropsDashboard {
   }
 }`;
 
+/** Twitch clients that ship a Drops UI and therefore know the dropCampaigns field. */
+const DROPS_CLIENT_IDS = ["kd1unb4b3q4t58fwlpcbzcbnm76a8fp"];
+
 function dashboardClientIds(): string[] {
-  const primary = gqlClientId();
-  return primary === WEB_GQL_CLIENT_ID ? [primary] : [primary, WEB_GQL_CLIENT_ID];
+  return Array.from(new Set([gqlClientId(), ...DROPS_CLIENT_IDS, WEB_GQL_CLIENT_ID]));
 }
 
-type DashboardAttempt = { campaigns: any[] | null; notes: string[] };
+type DashboardAttempt = { campaigns: any[] | null; notes: string[]; unauthorized: boolean };
 
 function dashboardBodies(): unknown[] {
   return [DASHBOARD_PROBE_QUERY, DASHBOARD_MINIMAL_QUERY, DASHBOARD_RAW_QUERY].map((query) => ({
@@ -250,31 +252,36 @@ function dashboardBodies(): unknown[] {
 
 async function tryDashboard(accessToken: string, clientId: string): Promise<DashboardAttempt> {
   const notes: string[] = [];
+  let unauthorized = false;
 
   for (const body of dashboardBodies()) {
     let payload: any;
     try {
       payload = await gqlRequest(body, accessToken, clientId);
     } catch (error) {
-      // 401 means the token itself is dead — no point trying other queries
-      if (error instanceof TwitchError && error.status === 401) throw error;
-      notes.push(error instanceof Error ? error.message : String(error));
+      if (error instanceof TwitchError) {
+        if (error.status === 401) unauthorized = true;
+        notes.push(`http-${error.status}`);
+      } else {
+        notes.push(error instanceof Error ? error.message : String(error));
+      }
       continue;
     }
 
     const campaigns = extractCampaigns(payload);
     if (campaigns) {
-      return { campaigns, notes };
+      return { campaigns, notes, unauthorized };
     }
 
-    notes.push(`${describePayload(payload)} raw=${JSON.stringify(payload).slice(0, 260)}`);
+    notes.push(`${describePayload(payload)} raw=${JSON.stringify(payload).slice(0, 240)}`);
   }
 
-  return { campaigns: null, notes };
+  return { campaigns: null, notes, unauthorized };
 }
 
 export async function fetchCampaigns(accessToken: string, userId: string): Promise<Campaign[]> {
   const notes: string[] = [];
+  let allUnauthorized = true;
 
   for (const clientId of dashboardClientIds()) {
     const attempt = await tryDashboard(accessToken, clientId);
@@ -283,14 +290,16 @@ export async function fetchCampaigns(accessToken: string, userId: string): Promi
         .map((campaign) => normalizeCampaign(campaign, userId))
         .filter((campaign: Campaign | null): campaign is Campaign => campaign !== null);
     }
-    notes.push(`${clientId}: ${attempt.notes.join(" / ") || "empty response"}`);
+    if (!attempt.unauthorized) allUnauthorized = false;
+    notes.push(`${clientId.slice(0, 6)}: ${attempt.notes.join(" / ") || "empty response"}`);
   }
 
-  const rejectedToken = notes.every((note) => note.includes("currentUser=null"));
+  if (allUnauthorized) {
+    throw new TwitchError("Токен Twitch больше не действует — войдите заново.", 401);
+  }
+
   throw new TwitchError(
-    rejectedToken
-      ? `Twitch не принял токен (currentUser=null). Диагностика: /api/debug — ${notes.join(" | ")}`
-      : `Twitch не отдал список кампаний: ${notes.join(" | ") || "неизвестная ошибка"}`,
+    `Twitch не отдал список кампаний: ${notes.join(" | ") || "неизвестная ошибка"}`,
     502,
   );
 }
